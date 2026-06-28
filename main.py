@@ -29,7 +29,10 @@ class ManageSigninPlugin(Star):
         yield event.plain_result(self._list_configs())
 
     @filter.command("添加签到")
-    async def add_config(self, event: AstrMessageEvent, cookie: str = ""):
+    async def add_config(self, event: AstrMessageEvent, *cookie_parts):
+        # 使用 *cookie_parts 接收所有被空格切开的参数，然后再用空格把它们重新无缝拼接起来
+        cookie = " ".join(cookie_parts).strip()
+        
         if not cookie:
             yield event.plain_result("❌ 用法: /添加签到 <cookie>\ncookie 不能为空")
             return
