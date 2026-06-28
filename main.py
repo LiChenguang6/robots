@@ -5,13 +5,13 @@ import yaml
 # 明确引入 AstrBot 必需的类和装饰器，避免命名冲突
 from astrbot.api.star import Context, Star, register
 from astrbot.api.event import filter, AstrMessageEvent
-# 注册插件 (插件ID, 作者, 描述, 版本)
+
 @register("manage_signin", "songwz", "签到配置管理", "1.0.0", "管理 MihoyoBBSTools 的签到配置文件")
 class ManageSigninPlugin(Star):
-    # 必须接收 context 并调用父类的 __init__
     def __init__(self, context: Context):
         super().__init__(context)
-        self.config_dir = "/docker/MihoyoBBSTools-master/config/"
+        # 修改点：替换为了群晖宿主机的真实绝对路径
+        self.config_dir = "/volume1/docker/MihoyoBBSTools-master/config/"
         self.base_file = "config-robots.yaml"
         print("✅ 签到管理插件已加载!")
 
