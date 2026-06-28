@@ -16,7 +16,7 @@ class ManageSigninPlugin(Star):
         
         self.push_target = None
         self.last_log_file = ""
-        self.last_line_count = 0  # 核心修改：不再记录文件大小，而是记录“读到了第几行”
+        self.last_line_count = 0  # 记录已读取的行数
         
         self.task = asyncio.create_task(self._watch_logs())
         print("✅ 签到管理与日志推送插件 (V1.3) 已加载!")
@@ -28,26 +28,18 @@ class ManageSigninPlugin(Star):
     async def list_configs(self, event: AstrMessageEvent):
         yield event.plain_result(self._list_configs())
 
-   @filter.command("添加签到")
+    @filter.command("添加签到")
     async def add_config(self, event: AstrMessageEvent):
-        """
-        使用正则提取指令后的完整字符串，支持带换行/分号/空格的复杂 Cookie
-        """
-        # 获取原始消息字符串
+        """使用正则提取指令后的完整字符串，支持带换行/分号/空格的复杂 Cookie"""
         raw_msg = event.message_str.strip()
-        
-        # 使用正则：匹配 "/添加签到" 或 "添加签到" 后面的所有内容
-        # flags=re.DOTALL 表示允许匹配换行符
+        # 匹配指令后的所有内容
         match = re.search(r'(?:/添加签到|添加签到)\s+(.*)', raw_msg, re.DOTALL)
         
         if not match:
             yield event.plain_result("❌ 用法: /添加签到 <cookie>\nCookie 不能为空")
             return
             
-        cookie = match.group(1).strip()
-        
-        # 进一步清理：如果是从群里直接复制的，可能包含引号
-        cookie = cookie.replace('"', '').replace("'", "")
+        cookie = match.group(1).strip().replace('"', '').replace("'", "")
         
         if not cookie:
             yield event.plain_result("❌ 提取到的 Cookie 为空，请检查输入格式")
@@ -64,163 +56,98 @@ class ManageSigninPlugin(Star):
     # ==========================
     @filter.command("绑定推送")
     async def bind_push(self, event: AstrMessageEvent):
-        """绑定当前群聊，接收自动更新的日志"""
         self.push_target = event.message_obj.sender
-        
-        # 绑定时，先读取当前日志的“总行数”并记录下来，防止直接刷屏旧日志
         try:
             files = [f for f in os.listdir(self.log_dir) if f.endswith('.log')]
             if files:
                 files.sort(key=lambda x: os.path.getmtime(os.path.join(self.log_dir, x)), reverse=True)
                 latest_file = files[0]
                 self.last_log_file = latest_file
-                
                 with open(os.path.join(self.log_dir, latest_file), 'r', encoding='utf-8', errors='ignore') as f:
                     self.last_line_count = len(f.readlines())
         except Exception:
             pass
-            
-        yield event.plain_result("✅ 绑定成功！\nMihoyoBBSTools 日志有更新时将自动推送至本群。\n(⚠️ 重启机器人需重新绑定)")
+        yield event.plain_result("✅ 绑定成功！\nMihoyoBBSTools 日志有更新时将自动推送至本群。")
 
     @filter.command("最新日志")
     async def get_latest_log(self, event: AstrMessageEvent, n: int = 30):
-        """手动获取当前最新的 N 行日志，默认 30 行"""
         try:
-            if n <= 0:
-                yield event.plain_result("❌ 行数必须大于 0")
-                return
-                
             if not os.path.exists(self.log_dir):
-                yield event.plain_result(f"❌ 日志目录不存在: {self.log_dir}")
+                yield event.plain_result(f"❌ 日志目录不存在")
                 return
-                
             files = [f for f in os.listdir(self.log_dir) if f.endswith('.log')]
             if not files:
-                yield event.plain_result("📭 暂无 .log 日志文件")
+                yield event.plain_result("📭 暂无日志")
                 return
-                
             files.sort(key=lambda x: os.path.getmtime(os.path.join(self.log_dir, x)), reverse=True)
-            latest_file = files[0]
-            file_path = os.path.join(self.log_dir, latest_file)
-            
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(os.path.join(self.log_dir, files[0]), 'r', encoding='utf-8', errors='ignore') as f:
                 lines = f.readlines()
-                
-                if not lines:
-                    yield event.plain_result(f"📭 文件 {latest_file} 是空的")
-                    return
-                    
-                # 动态获取最后的 n 行
-                tail_lines = "".join(lines[-n:])
-                
-            ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-            clean_text = ansi_escape.sub('', tail_lines)
-            
-            yield event.plain_result(f"📄 {latest_file} 最新 {len(lines[-n:])} 行日志:\n{clean_text}")
+                clean_text = re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', "".join(lines[-n:]))
+            yield event.plain_result(f"📄 最新 {n} 行日志:\n{clean_text}")
         except Exception as e:
-            yield event.plain_result(f"❌ 读取日志失败: {str(e)}")
+            yield event.plain_result(f"❌ 读取失败: {str(e)}")
 
-    # ==========================
-    # 后台日志轮询机制 (基于行数追踪)
-    # ==========================
     async def _watch_logs(self):
         while True:
             await asyncio.sleep(60)
-            if not self.push_target:
-                continue
-            try:
-                await self._check_and_push()
-            except Exception as e:
-                print(f"日志监控异常: {e}")
+            if self.push_target:
+                try: await self._check_and_push()
+                except Exception: pass
 
     async def _check_and_push(self):
-        if not os.path.exists(self.log_dir):
-            return
-            
+        if not os.path.exists(self.log_dir): return
         files = [f for f in os.listdir(self.log_dir) if f.endswith('.log')]
-        if not files:
-            return
-            
-        # 找到最新的文件
+        if not files: return
         files.sort(key=lambda x: os.path.getmtime(os.path.join(self.log_dir, x)), reverse=True)
         latest_file = files[0]
         file_path = os.path.join(self.log_dir, latest_file)
         
-        # 检查是否切换了新文件
         if self.last_log_file != latest_file:
             self.last_log_file = latest_file
             self.last_line_count = 0
             
-        # 读取当前所有行
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             lines = f.readlines()
         
-        current_line_count = len(lines)
-        
-        # 如果总行数增加了，说明有新日志
-        if current_line_count > self.last_line_count:
-            # 提取从上次读完之后的所有新行
-            new_lines = lines[self.last_line_count:]
-            self.last_line_count = current_line_count
-            
-            # 拼接并清洗
-            content = "".join(new_lines).strip()
-            if content:
-                ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-                clean_text = ansi_escape.sub('', content)
-                
-                # 长度限制
-                if len(clean_text) > 1500:
-                    clean_text = clean_text[:1500] + "\n...[日志过长，已截断]"
-                
-                msg = f"📢 [新签到动态]\n{clean_text}"
-                await self.context.send_message(self.push_target, MessageChain().message(msg))
-                
-        # 如果文件行数比之前少了（可能是日志轮转/清空了），重置计数
-        elif current_line_count < self.last_line_count:
+        if len(lines) > self.last_line_count:
+            new_lines = "".join(lines[self.last_line_count:]).strip()
+            self.last_line_count = len(lines)
+            if new_lines:
+                clean_text = re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', new_lines)
+                await self.context.send_message(self.push_target, MessageChain().message(f"📢 [新动态]\n{clean_text[:1500]}"))
+        elif len(lines) < self.last_line_count:
             self.last_line_count = 0
-    # ==========================
-    # 原有的配置读写逻辑保持不变
-    # ==========================
+
+    # 配置读写逻辑保持不变
     def _list_configs(self) -> str:
         try:
-            if not os.path.exists(self.config_dir): return f"❌ 目录不存在: {self.config_dir}"
-            files = [f for f in os.listdir(self.config_dir) if f.startswith("config-robots") and f.endswith(".yaml")]
-            if not files: return "📭 当前没有签到配置文件"
-            files.sort()
-            result = "📋 当前签到配置文件列表:\n"
+            if not os.path.exists(self.config_dir): return "❌ 目录不存在"
+            files = sorted([f for f in os.listdir(self.config_dir) if f.startswith("config-robots") and f.endswith(".yaml")])
+            result = "📋 配置文件列表:\n"
             for f in files:
-                try:
-                    with open(os.path.join(self.config_dir, f), 'r', encoding='utf-8') as file:
-                        cookie = yaml.safe_load(file).get('account', {}).get('cookie', '')
-                        result += f"  - {f}\n    cookie: {cookie[:30]}...\n"
-                except Exception:
-                    result += f"  - {f} (⚠️ 读取失败)\n"
+                with open(os.path.join(self.config_dir, f), 'r', encoding='utf-8') as file:
+                    cookie = yaml.safe_load(file).get('account', {}).get('cookie', '')
+                    result += f" - {f}: {cookie[:20]}...\n"
             return result
-        except Exception as e: return f"❌ 读取失败: {str(e)}"
+        except Exception as e: return f"❌ 读取失败: {e}"
     
     def _add_config(self, cookie: str) -> str:
         try:
-            if not os.path.exists(self.config_dir): return f"❌ 目录不存在"
             files = [f for f in os.listdir(self.config_dir) if f.startswith("config-robots") and f.endswith(".yaml")]
-            nums = [int(re.search(r"config-robots(\d+)\.yaml", f).group(1)) for f in files if re.search(r"config-robots(\d+)\.yaml", f)]
+            nums = [int(re.search(r"(\d+)", f).group(1)) for f in files if re.search(r"(\d+)", f)]
             next_num = max(nums) + 1 if nums else 1
             with open(os.path.join(self.config_dir, self.base_file), 'r', encoding='utf-8') as f: config = yaml.safe_load(f)
-            if 'account' not in config: config['account'] = {}
-            config['account']['cookie'] = cookie
+            config['account'] = {'cookie': cookie}
             new_file = f"config-robots{next_num}.yaml"
             with open(os.path.join(self.config_dir, new_file), 'w', encoding='utf-8') as f:
-                yaml.dump(config, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
-            return f"✅ 已添加签到配置: {new_file}\nCookie: {cookie[:50]}..."
-        except Exception as e: return f"❌ 添加失败: {str(e)}"
+                yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
+            return f"✅ 已添加: {new_file}"
+        except Exception as e: return f"❌ 添加失败: {e}"
     
     def _delete_config(self, num: int) -> str:
         try:
-            if num <= 0: return "❌ 编号必须大于 0"
-            target_file = f"config-robots{num}.yaml"
-            target_path = os.path.join(self.config_dir, target_file)
-            if not os.path.exists(target_path): return f"❌ {target_file} 不存在"
-            if target_file == self.base_file: return f"❌ 不能删除主模板"
-            os.remove(target_path)
-            return f"✅ 已删除: {target_file}"
-        except Exception as e: return f"❌ 删除失败: {str(e)}"
+            target = f"config-robots{num}.yaml"
+            if not os.path.exists(os.path.join(self.config_dir, target)): return f"❌ {target} 不存在"
+            os.remove(os.path.join(self.config_dir, target))
+            return f"✅ 已删除: {target}"
+        except Exception as e: return f"❌ 删除失败: {e}"
