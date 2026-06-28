@@ -2,7 +2,6 @@
 import os
 import re
 import yaml
-import asyncio
 from typing import Tuple, Optional
 from astrbot.api.all import *
 
@@ -57,6 +56,9 @@ class ManageSigninPlugin:
     def _list_configs(self) -> str:
         """列出所有配置文件"""
         try:
+            if not os.path.exists(self.config_dir):
+                return f"❌ 目录不存在: {self.config_dir}"
+            
             files = [f for f in os.listdir(self.config_dir) 
                     if f.startswith("config-robots") and f.endswith(".yaml")]
             if not files:
@@ -64,17 +66,15 @@ class ManageSigninPlugin:
             files.sort()
             result = "📋 当前签到配置文件列表:\n"
             for f in files:
-                # 检查文件是否有内容
                 file_path = os.path.join(self.config_dir, f)
                 try:
                     with open(file_path, 'r', encoding='utf-8') as file:
                         config = yaml.safe_load(file)
-                        # 提取cookie的前几个字符作为标识
                         cookie = config.get('account', {}).get('cookie', '')
                         cookie_preview = cookie[:30] + "..." if len(cookie) > 30 else cookie
-                        result += f"  - {f} (cookie: {cookie_preview})\n"
-                except:
-                    result += f"  - {f} (⚠️ 读取失败)\n"
+                        result += f"  - {f}\n    cookie: {cookie_preview}\n"
+                except Exception as e:
+                    result += f"  - {f} (⚠️ 读取失败: {str(e)})\n"
             return result
         except Exception as e:
             return f"❌ 读取失败: {str(e)}"
@@ -82,6 +82,9 @@ class ManageSigninPlugin:
     def _add_config(self, cookie: str) -> str:
         """添加新的配置文件"""
         try:
+            if not os.path.exists(self.config_dir):
+                return f"❌ 目录不存在: {self.config_dir}"
+            
             # 查找最大编号
             files = [f for f in os.listdir(self.config_dir) 
                     if f.startswith("config-robots") and f.endswith(".yaml")]
@@ -122,15 +125,15 @@ class ManageSigninPlugin:
             if num <= 0:
                 return "❌ 编号必须大于 0"
             
-            # 保护主模板文件
-            if num == 0:
-                return "❌ 不能删除主模板 config-robots.yaml"
-            
             target_file = f"config-robots{num}.yaml"
             target_path = os.path.join(self.config_dir, target_file)
             
             if not os.path.exists(target_path):
                 return f"❌ {target_file} 不存在"
+            
+            # 保护主模板文件
+            if target_file == self.base_file:
+                return f"❌ 不能删除主模板 {self.base_file}"
             
             os.remove(target_path)
             return f"✅ 已删除签到配置: {target_file}"
@@ -162,6 +165,5 @@ class ManageSigninPlugin:
   /删除签到 3
             """,
             "version": "1.0.0",
-            "author": "songwz",
-            "repo": "https://github.com/songwz/manage-signin-plugin"
+            "author": "songwz"
         }
