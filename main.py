@@ -141,29 +141,44 @@ class ManageSigninPlugin(Star):
         if not files:
             return
             
-        # 找到最新的那个日志文件
+        # 找到最新的文件
         files.sort(key=lambda x: os.path.getmtime(os.path.join(self.log_dir, x)), reverse=True)
         latest_file = files[0]
         file_path = os.path.join(self.log_dir, latest_file)
         
-        # 获取当前文件的最后修改时间
-        current_mtime = os.path.getmtime(file_path)
+        # 检查是否切换了新文件
+        if self.last_log_file != latest_file:
+            self.last_log_file = latest_file
+            self.last_line_count = 0
+            
+        # 读取当前所有行
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
         
-        # 检查时间戳是否更新 (我们需要保存一个全局的状态变量 self.last_mtime)
-        if not hasattr(self, 'last_mtime'):
-            self.last_mtime = 0
+        current_line_count = len(lines)
+        
+        # 如果总行数增加了，说明有新日志
+        if current_line_count > self.last_line_count:
+            # 提取从上次读完之后的所有新行
+            new_lines = lines[self.last_line_count:]
+            self.last_line_count = current_line_count
             
-        if current_mtime > self.last_mtime:
-            # 确实变了！读取文件内容
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
+            # 拼接并清洗
+            content = "".join(new_lines).strip()
+            if content:
+                ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+                clean_text = ansi_escape.sub('', content)
                 
-            # 这里我们只推送内容末尾的变化部分 (通过对比逻辑)
-            # 为了简单稳定，这里直接读取整个文件后，提取最新时间戳对应的段落
-            # ... (此处逻辑与之前的行数追踪类似，只是判断触发条件改成了 mtime)
-            
-            self.last_mtime = current_mtime
-            # ... 发送逻辑 ...
+                # 长度限制
+                if len(clean_text) > 1500:
+                    clean_text = clean_text[:1500] + "\n...[日志过长，已截断]"
+                
+                msg = f"📢 [新签到动态]\n{clean_text}"
+                await self.context.send_message(self.push_target, MessageChain().message(msg))
+                
+        # 如果文件行数比之前少了（可能是日志轮转/清空了），重置计数
+        elif current_line_count < self.last_line_count:
+            self.last_line_count = 0
     # ==========================
     # 原有的配置读写逻辑保持不变
     # ==========================
