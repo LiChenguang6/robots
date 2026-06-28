@@ -28,12 +28,31 @@ class ManageSigninPlugin(Star):
     async def list_configs(self, event: AstrMessageEvent):
         yield event.plain_result(self._list_configs())
 
-    @filter.command("添加签到")
-    async def add_config(self, event: AstrMessageEvent, *cookie_parts):
-        cookie = " ".join(cookie_parts).strip()
-        if not cookie:
-            yield event.plain_result("❌ 用法: /添加签到 <cookie>\ncookie 不能为空")
+   @filter.command("添加签到")
+    async def add_config(self, event: AstrMessageEvent):
+        """
+        使用正则提取指令后的完整字符串，支持带换行/分号/空格的复杂 Cookie
+        """
+        # 获取原始消息字符串
+        raw_msg = event.message_str.strip()
+        
+        # 使用正则：匹配 "/添加签到" 或 "添加签到" 后面的所有内容
+        # flags=re.DOTALL 表示允许匹配换行符
+        match = re.search(r'(?:/添加签到|添加签到)\s+(.*)', raw_msg, re.DOTALL)
+        
+        if not match:
+            yield event.plain_result("❌ 用法: /添加签到 <cookie>\nCookie 不能为空")
             return
+            
+        cookie = match.group(1).strip()
+        
+        # 进一步清理：如果是从群里直接复制的，可能包含引号
+        cookie = cookie.replace('"', '').replace("'", "")
+        
+        if not cookie:
+            yield event.plain_result("❌ 提取到的 Cookie 为空，请检查输入格式")
+            return
+            
         yield event.plain_result(self._add_config(cookie))
 
     @filter.command("删除签到")
