@@ -1,24 +1,68 @@
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
-from astrbot.api.star import Context, Star, register
-from astrbot.api import logger
+# data/plugins/manage_signin.py
+import os
+import re
+import yaml
+from astrbot.api.all import *
 
-@register("helloworld", "YourName", "一个简单的 Hello World 插件", "1.0.0")
-class MyPlugin(Star):
-    def __init__(self, context: Context):
+@register("manage_signin", "签到管理插件", "1.0.0", "管理 MihoyoBBSTools 的账号配置")
+class ManageSigninPlugin(Star):
+    def __init__(self, context: Context, config: dict):
         super().__init__(context)
+        self.config_dir = "/docker/MihoyoBBSTools-master/config/"
 
-    async def initialize(self):
-        """可选择实现异步的插件初始化方法，当实例化该插件类之后会自动调用该方法。"""
+    @command("签到列表")
+    async def list_signin(self, event: AstrMessageEvent):
+        files = [f for f in os.listdir(self.config_dir) if f.startswith("config-robots") and f.endswith(".yaml")]
+        if not files:
+            yield event.plain_result("📭 当前没有签到配置文件")
+            return
+        files.sort()
+        result = "📋 当前签到配置文件列表:\n" + "\n".join([f"  - {f}" for f in files])
+        yield event.plain_result(result)
 
-    # 注册指令的装饰器。指令名为 helloworld。注册成功后，发送 `/helloworld` 就会触发这个指令，并回复 `你好, {user_name}!`
-    @filter.command("helloworld")
-    async def helloworld(self, event: AstrMessageEvent):
-        """这是一个 hello world 指令""" # 这是 handler 的描述，将会被解析方便用户了解插件内容。建议填写。
-        user_name = event.get_sender_name()
-        message_str = event.message_str # 用户发的纯文本消息字符串
-        message_chain = event.get_messages() # 用户所发的消息的消息链 # from astrbot.api.message_components import *
-        logger.info(message_chain)
-        yield event.plain_result(f"Hello, {user_name}, 你发了 {message_str}!") # 发送一条纯文本消息
+    @command("添加签到")
+    async def add_signin(self, event: AstrMessageEvent, cookie: str):
+        # 查找最大编号
+        files = [f for f in os.listdir(self.config_dir) if f.startswith("config-robots") and f.endswith(".yaml")]
+        nums = []
+        for f in files:
+            match = re.search(r"config-robots(\d*)\.yaml", f)
+            if match:
+                num = match.group(1) or 0
+                nums.append(int(num))
+        next_num = max(nums) + 1 if nums else 1
+        
+        # 读取模板
+        template_path = os.path.join(self.config_dir, "config-robots.yaml")
+        with open(template_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+        
+        # 修改 cookie
+        config['account']['cookie'] = cookie
+        
+        # 写入新文件
+        new_path = os.path.join(self.config_dir, f"config-robots{next_num}.yaml")
+        with open(new_path, 'w', encoding='utf-8') as f:
+            yaml.dump(config, f, allow_unicode=True)
+        
+        yield event.plain_result(f"✅ 已添加签到配置: config-robots{next_num}.yaml")
 
-    async def terminate(self):
-        """可选择实现异步的插件销毁方法，当插件被卸载/停用时会调用。"""
+    @command("删除签到")
+    async def delete_signin(self, event: AstrMessageEvent, num: int):
+        if num <= 0:
+            yield event.plain_result("❌ 编号必须大于 0")
+            return
+        
+        # 检查是否存在
+        target = os.path.join(self.config_dir, f"config-robots{num}.yaml")
+        if not os.path.exists(target):
+            yield event.plain_result(f"❌ config-robots{num}.yaml 不存在")
+            return
+        
+        # 禁止删除主模板
+        if num == 0 or target.endswith("config-robots.yaml"):
+            yield event.plain_result("❌ 不能删除主模板 config-robots.yaml")
+            return
+        
+        os.remove(target)
+        yield event.plain_result(f"✅ 已删除签到配置: config-robots{num}.yaml")
