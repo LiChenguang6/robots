@@ -1,4 +1,4 @@
-# astrbot-plugin-helloworld
+# astrbot-plugin-自动签到
 
 AstrBot 插件模板 / A template plugin for AstrBot plugin feature
 
