@@ -98,7 +98,7 @@ class ManageSigninPlugin(Star):
             new_file = f"config-robots{next_num}.yaml"
             new_path = os.path.join(self.config_dir, new_file)
             with open(new_path, 'w', encoding='utf-8') as f:
-                yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
+                yaml.dump(config, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
             
             return f"✅ 已添加签到配置: {new_file}\nCookie: {cookie[:50]}..."
         except Exception as e:
