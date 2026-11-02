@@ -22,8 +22,7 @@ jobs:
       - name: Use runner Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
-          test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" || which sdkmanager
-          sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-35" "build-tools;35.0.0"
       - name: Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
